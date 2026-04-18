@@ -27,22 +27,20 @@
 .header-title { font-size: 17px; font-weight: 700; color: var(--accent); line-height: 1.2; }
 .header-sub { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
 
+.header-center {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
 .header-right {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-}
-
-/* ===== SYNC SUB-BAR ===== */
-.sync-sub-bar {
-  background: rgba(0,0,0,0.25);
-  border-bottom: 1px solid var(--border);
-  padding: 5px 20px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 28px;
 }
 
 .btn-ghost {

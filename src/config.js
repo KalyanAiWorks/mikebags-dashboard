@@ -1,5 +1,4 @@
 // ─── SALES CATEGORIES ────────────────────────────────────────────────────────
-// Add a new category: one line here. Nothing else changes.
 export const INDUSTRIES = [
   'Education Schools',
   'Education Colleges',
@@ -9,6 +8,20 @@ export const INDUSTRIES = [
   'Gifting Events',
   'Sports Gyms',
 ]
+
+// ─── HARDCODED SHEET URLS (gviz CSV — no publishing required) ────────────────
+const _BASE = 'https://docs.google.com/spreadsheets/d/1_1sFSV4MhKXcfU3cgsYbJ5d_FTbbdGqsd427EEDQMLc/gviz/tq?tqx=out:csv&sheet='
+export const SHEET_URLS = {
+  'Education Schools':  _BASE + 'Education+Schools',
+  'Education Colleges': _BASE + 'Education+Colleges',
+  'Corporate IT':       _BASE + 'Corporate+IT',
+  'Corporate FMCG':     _BASE + 'Corporate+FMCG',
+  'Corporate Large':    _BASE + 'Corporate+Large',
+  'Gifting Events':     _BASE + 'Gifting+Events',
+  'Sports Gyms':        _BASE + 'Sports+Gyms',
+}
+
+export const SYNC_INTERVAL_MS = 60_000
 
 // ─── LEAD STATUSES ───────────────────────────────────────────────────────────
 export const STATUSES = [

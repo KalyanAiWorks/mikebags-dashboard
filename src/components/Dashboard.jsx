@@ -1,45 +1,18 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import Papa from 'papaparse'
 import './Dashboard.css'
-import { INDUSTRIES, STATUSES, STATUS_COLORS, INDIAN_STATES, SAMPLE_DATA } from '../config'
-import Settings from './Settings'
+import { INDUSTRIES, STATUSES, STATUS_COLORS, INDIAN_STATES, SAMPLE_DATA, SHEET_URLS, SYNC_INTERVAL_MS } from '../config'
 
-const STORAGE_KEY    = 'mb_contacts_v2'
-const SETTINGS_KEY   = 'mb_settings_v2'
-const LAST_SYNC_KEY  = 'mb_last_sync'
+const STORAGE_KEY   = 'mb_contacts_v2'
+const LAST_SYNC_KEY = 'mb_last_sync'
 
 const TABS = ['All', ...INDUSTRIES]
-
-// ── helpers ──────────────────────────────────────────────────────────────────
 
 function loadContacts() {
   try { const d = localStorage.getItem(STORAGE_KEY); return d ? JSON.parse(d) : SAMPLE_DATA } catch { return SAMPLE_DATA }
 }
 function saveContacts(c) { localStorage.setItem(STORAGE_KEY, JSON.stringify(c)) }
 
-const DEFAULT_SETTINGS = {
-  autoSync: true,
-  syncInterval: 60,
-  sheetUrls: {
-    'Education Schools': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9MoKZbsWbpl07_fC-earIWWakEasP5FwLGlrLpsgJLl9RhEZ95mKxa0Nhu6508VslIaZ4I77Vhser/pub?gid=0&single=true&output=csv',
-  }
-}
-
-function loadSettings() {
-  try {
-    const d = localStorage.getItem(SETTINGS_KEY)
-    if (!d) return DEFAULT_SETTINGS
-    const saved = JSON.parse(d)
-    // merge: ensure Education Schools URL is always present if not overridden
-    return {
-      ...DEFAULT_SETTINGS,
-      ...saved,
-      sheetUrls: { ...DEFAULT_SETTINGS.sheetUrls, ...(saved.sheetUrls || {}) }
-    }
-  } catch { return DEFAULT_SETTINGS }
-}
-
-/** Parse one CSV text blob → array of { name, company, email, phone } for matching */
 const pick = (row, ...keys) => { for (const k of keys) if (row[k] !== undefined && row[k] !== '') return row[k]; return '' }
 
 function parseSheetRows(text) {
@@ -57,7 +30,6 @@ function parseSheetRows(text) {
   }).filter(r => r.name || r.company)
 }
 
-/** Match sheet row → dashboard contact by name (normalized) or company */
 function matchContact(sheetRow, contacts) {
   const norm = s => (s || '').toLowerCase().trim()
   const sName = norm(sheetRow.name)
@@ -82,7 +54,34 @@ function formatAgo(ts) {
   return `${Math.floor(secs / 3600)}h ago`
 }
 
-// ── component ────────────────────────────────────────────────────────────────
+async function fetchAllSheets(currentContacts) {
+  let updated = 0
+  let next = [...currentContacts]
+
+  await Promise.all(INDUSTRIES.map(async (industry) => {
+    const url = SHEET_URLS[industry]
+    if (!url) return
+    try {
+      const res  = await fetch(url)
+      if (!res.ok) return
+      const text = await res.text()
+      const rows = parseSheetRows(text)
+      rows.forEach(sheetRow => {
+        const matched = matchContact(sheetRow, next)
+        if (!matched) return
+        const patch = {}
+        if (sheetRow.email && sheetRow.email !== matched.email) patch.email = sheetRow.email
+        if (sheetRow.phone && sheetRow.phone !== matched.phone) patch.phone = sheetRow.phone
+        if (Object.keys(patch).length) {
+          updated++
+          next = next.map(c => c.id === matched.id ? { ...c, ...patch } : c)
+        }
+      })
+    } catch { /* network error — skip this sheet */ }
+  }))
+
+  return { updated, contacts: next }
+}
 
 export default function Dashboard({ onLogout }) {
   const [contacts, setContacts] = useState(loadContacts)
@@ -93,7 +92,6 @@ export default function Dashboard({ onLogout }) {
   const [editingCell, setEditingCell] = useState(null)
   const [editValue, setEditValue] = useState('')
 
-  // import panel
   const [importUrl, setImportUrl] = useState('')
   const [importIndustry, setImportIndustry] = useState(INDUSTRIES[0])
   const [importMode, setImportMode] = useState('append')
@@ -101,116 +99,53 @@ export default function Dashboard({ onLogout }) {
   const [importMsg, setImportMsg] = useState('')
   const [showImportPanel, setShowImportPanel] = useState(false)
 
-  // settings & sync
-  const [settings, setSettings] = useState(loadSettings)
-  const [showSettings, setShowSettings] = useState(false)
   const [syncing, setSyncing] = useState(false)
-  const [syncMsg, setSyncMsg] = useState('')   // e.g. "3 contacts updated"
+  const [syncMsg, setSyncMsg] = useState('')
   const [lastSyncTs, setLastSyncTs] = useState(() => {
     const v = localStorage.getItem(LAST_SYNC_KEY); return v ? Number(v) : null
   })
-  const [ticker, setTicker] = useState(0)     // forces "X min ago" re-render
-
-  // modal
+  const [ticker, setTicker] = useState(0)
   const [notesModal, setNotesModal] = useState(null)
   const editRef = useRef(null)
+  const syncingRef = useRef(false)
 
   useEffect(() => { saveContacts(contacts) }, [contacts])
-  useEffect(() => { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)) }, [settings])
   useEffect(() => { if (editingCell && editRef.current) editRef.current.focus() }, [editingCell])
-
-  // tick every 30s to refresh "X min ago"
   useEffect(() => {
     const t = setInterval(() => setTicker(n => n + 1), 30000)
     return () => clearInterval(t)
   }, [])
 
-  // ── sync engine ────────────────────────────────────────────────────────────
-
-  const runSync = useCallback(async (currentContacts, currentSettings) => {
-    const urls = currentSettings.sheetUrls || {}
-    const configured = INDUSTRIES.filter(ind => urls[ind])
-    if (!configured.length) return { updated: 0, contacts: currentContacts }
-
-    let updated = 0
-    let next = [...currentContacts]
-
-    await Promise.all(configured.map(async (industry) => {
-      try {
-        const rawUrl = urls[industry]
-        const url = rawUrl.includes('output=csv') ? rawUrl : rawUrl + (rawUrl.includes('?') ? '&' : '?') + 'output=csv'
-        const res  = await fetch(url)
-        const text = await res.text()
-        const rows = parseSheetRows(text)
-
-        rows.forEach(sheetRow => {
-          const matched = matchContact(sheetRow, next)
-          if (!matched) return
-          let changed = false
-          const patch = {}
-          if (sheetRow.email && sheetRow.email !== matched.email) { patch.email = sheetRow.email; changed = true }
-          if (sheetRow.phone && sheetRow.phone !== matched.phone) { patch.phone = sheetRow.phone; changed = true }
-          if (changed) {
-            updated++
-            next = next.map(c => c.id === matched.id ? { ...c, ...patch } : c)
-          }
-        })
-      } catch { /* skip failed sheet */ }
-    }))
-
-    return { updated, contacts: next }
-  }, [])
-
-  const doSync = useCallback(() => {
-    if (syncing) return
+  const doSync = useCallback(async () => {
+    if (syncingRef.current) return
+    syncingRef.current = true
     setSyncing(true)
     setSyncMsg('')
-    syncNow()
-  }, [syncing, syncNow])
-
-  const syncNow = useCallback((currentSettings) => {
-    const s = currentSettings || settings
     setContacts(prev => {
-      runSync(prev, s).then(({ updated, contacts: next }) => {
+      fetchAllSheets(prev).then(({ updated, contacts: next }) => {
         if (updated) setContacts(next)
         const now = Date.now()
         setLastSyncTs(now)
         localStorage.setItem(LAST_SYNC_KEY, String(now))
         setSyncMsg(updated ? `${updated} updated` : 'Up to date')
         setSyncing(false)
+        syncingRef.current = false
+      }).catch(() => {
+        setSyncing(false)
+        syncingRef.current = false
       })
       return prev
     })
-  }, [settings, runSync])
-
-  // initial sync on mount
-  useEffect(() => {
-    const initialSettings = loadSettings()
-    const urls = initialSettings.sheetUrls || {}
-    if (Object.values(urls).some(Boolean)) {
-      setSyncing(true)
-      setSyncMsg('')
-      syncNow(initialSettings)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // polling interval — runs whenever autoSync is on OR URLs are configured
-  useEffect(() => {
-    const urls = settings.sheetUrls || {}
-    const hasUrls = Object.values(urls).some(Boolean)
-    if (!settings.autoSync && !hasUrls) return
-    if (!settings.autoSync) return
-    const ms = (settings.syncInterval || 60) * 1000
-    const t = setInterval(() => {
-      setSyncing(true)
-      setSyncMsg('')
-      syncNow()
-    }, ms)
-    return () => clearInterval(t)
-  }, [settings, syncNow])
+  // initial sync on mount
+  useEffect(() => { doSync() }, [doSync])
 
-  // ── derived state ──────────────────────────────────────────────────────────
+  // auto-poll every SYNC_INTERVAL_MS
+  useEffect(() => {
+    const t = setInterval(doSync, SYNC_INTERVAL_MS)
+    return () => clearInterval(t)
+  }, [doSync])
 
   const filtered = useMemo(() => contacts.filter(c => {
     if (activeTab !== 'All' && c.industry !== activeTab) return false
@@ -229,33 +164,30 @@ export default function Dashboard({ onLogout }) {
   const stats = useMemo(() => {
     const base = activeTab === 'All' ? contacts : contacts.filter(c => c.industry === activeTab)
     return {
-      total:     base.length,
-      contacted: base.filter(c => ['Contacted','Interested','Meeting Scheduled','Deal Closed'].includes(c.status)).length,
+      total:      base.length,
+      contacted:  base.filter(c => ['Contacted','Interested','Meeting Scheduled','Deal Closed'].includes(c.status)).length,
       interested: base.filter(c => ['Interested','Meeting Scheduled'].includes(c.status)).length,
-      closed:    base.filter(c => c.status === 'Deal Closed').length,
+      closed:     base.filter(c => c.status === 'Deal Closed').length,
     }
   }, [contacts, activeTab])
-
-  // ── edit helpers ───────────────────────────────────────────────────────────
 
   const updateContact = (id, field, value) =>
     setContacts(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
 
-  const startEdit = (id, field, value) => { setEditingCell(`${id}__${field}`); setEditValue(value || '') }
+  const startEdit  = (id, field, value) => { setEditingCell(`${id}__${field}`); setEditValue(value || '') }
   const commitEdit = (id, field) => { updateContact(id, field, editValue); setEditingCell(null) }
   const handleEditKeyDown = (e, id, field) => {
     if (e.key === 'Enter') commitEdit(id, field)
     if (e.key === 'Escape') setEditingCell(null)
   }
 
-  // ── import ─────────────────────────────────────────────────────────────────
-
   const importFromUrl = async () => {
     if (!importUrl.trim()) return
     setImporting(true); setImportMsg('')
     try {
-      const url = importUrl.includes('output=csv') ? importUrl : importUrl + (importUrl.includes('?') ? '&' : '?') + 'output=csv'
-      const res = await fetch(url)
+      const url = importUrl.includes('output=csv') ? importUrl
+        : importUrl + (importUrl.includes('?') ? '&' : '?') + 'output=csv'
+      const res  = await fetch(url)
       const text = await res.text()
       const result = Papa.parse(text, { header: true, skipEmptyLines: true })
       if (result.errors.length && !result.data.length) throw new Error('Parse failed')
@@ -268,7 +200,7 @@ export default function Dashboard({ onLogout }) {
         const location  = pick(row, 'Location', 'location', 'City', 'city')
         const industry  = pick(row, 'Industry', 'industry', 'Category') || importIndustry
         return {
-          id: `imported_${Date.now()}_${i}`,
+          id:       `imported_${Date.now()}_${i}`,
           name,
           company:  pick(row, 'Company Name', 'Company', 'company', 'Organization', 'org'),
           jobTitle: pick(row, 'Job Title', 'jobTitle', 'Title', 'Designation', 'Role'),
@@ -306,10 +238,6 @@ export default function Dashboard({ onLogout }) {
     if (confirm('Reset to sample data? This will clear all current contacts.')) setContacts(SAMPLE_DATA)
   }
 
-  const configuredUrls = Object.values(settings.sheetUrls || {}).filter(Boolean).length
-
-  // ── render ─────────────────────────────────────────────────────────────────
-
   return (
     <div className="dashboard">
       <header className="dash-header">
@@ -321,16 +249,27 @@ export default function Dashboard({ onLogout }) {
           </div>
         </div>
 
+        <div className="header-center">
+          <span className={`sync-badge ${syncing ? 'syncing' : 'active'}`}>
+            <span className="sync-dot" />
+            {syncing ? 'Syncing...' : 'Live'}
+          </span>
+          <span className="last-sync" key={ticker}>
+            {syncing
+              ? 'Fetching all sheets...'
+              : lastSyncTs
+                ? `🔄 Last synced: ${formatAgo(lastSyncTs)}`
+                : '🔄 Syncing...'}
+            {!syncing && syncMsg && <span className="sync-diff"> · {syncMsg}</span>}
+          </span>
+        </div>
+
         <div className="header-right">
-          <button className="btn-settings" onClick={() => setShowSettings(true)}>
-            ⚙️ Settings
-            {configuredUrls > 0 && <span className="badge-count">{configuredUrls}</span>}
-          </button>
           <button
-            className={`btn-ghost ${settings.autoSync ? 'sync-on' : ''}`}
+            className="btn-ghost"
             onClick={doSync}
-            disabled={syncing || configuredUrls === 0}
-            title={configuredUrls === 0 ? 'Configure sheet URLs in Settings first' : 'Pull latest data from all sheets'}
+            disabled={syncing}
+            title="Pull latest data from all sheets now"
           >
             {syncing ? '⟳ Syncing…' : '⟳ Sync Now'}
           </button>
@@ -344,18 +283,6 @@ export default function Dashboard({ onLogout }) {
           <button className="btn-logout" onClick={onLogout}>Logout</button>
         </div>
       </header>
-
-      {/* sync sub-bar */}
-      <div className="sync-sub-bar">
-        <span className={`sync-badge ${syncing ? 'syncing' : 'active'}`}>
-          <span className="sync-dot" />
-          {syncing ? 'Syncing...' : 'Auto-Sync ON'}
-        </span>
-        <span className="last-sync" key={ticker}>
-          {syncing ? 'Fetching sheets...' : lastSyncTs ? `🔄 Last synced: ${formatAgo(lastSyncTs)}` : '🔄 Waiting for first sync...'}
-          {!syncing && syncMsg && <span className="sync-diff"> · {syncMsg}</span>}
-        </span>
-      </div>
 
       {showImportPanel && (
         <div className="import-panel">
@@ -395,10 +322,10 @@ export default function Dashboard({ onLogout }) {
       )}
 
       <div className="stats-row">
-        <StatCard label="Total Leads"  value={stats.total}     icon="👥" color="#2979ff" />
-        <StatCard label="Contacted"    value={stats.contacted} icon="📞" color="#00bcd4" />
+        <StatCard label="Total Leads"  value={stats.total}      icon="👥" color="#2979ff" />
+        <StatCard label="Contacted"    value={stats.contacted}  icon="📞" color="#00bcd4" />
         <StatCard label="Interested"   value={stats.interested} icon="🔥" color="#ffab00" />
-        <StatCard label="Deals Closed" value={stats.closed}    icon="🏆" color="#00c853" />
+        <StatCard label="Deals Closed" value={stats.closed}     icon="🏆" color="#00c853" />
       </div>
 
       <div className="tabs-bar">
@@ -502,14 +429,6 @@ export default function Dashboard({ onLogout }) {
           contact={notesModal}
           onSave={notes => { updateContact(notesModal.id, 'notes', notes); setNotesModal(null) }}
           onClose={() => setNotesModal(null)}
-        />
-      )}
-
-      {showSettings && (
-        <Settings
-          settings={settings}
-          onSave={s => { setSettings(s); setShowSettings(false) }}
-          onClose={() => setShowSettings(false)}
         />
       )}
     </div>
