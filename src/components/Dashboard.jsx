@@ -1,69 +1,108 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
-import Papa from 'papaparse'
 import './Dashboard.css'
 import { INDUSTRIES, STATUSES, STATUS_COLORS, INDIAN_STATES, SHEET_URLS, SYNC_INTERVAL_MS } from '../config'
 
-// localStorage stores only user overrides (status, notes) — not all contacts
+// localStorage: only overrides (status, notes) — full contacts come from sheets every sync
 const OVERRIDES_KEY = 'mb_overrides_v1'
 const LAST_SYNC_KEY = 'mb_last_sync'
 const TABS = ['All', ...INDUSTRIES]
 
 function loadOverrides() {
-  try { const d = localStorage.getItem(OVERRIDES_KEY); return d ? JSON.parse(d) : {} } catch { return {} }
+  try { var d = localStorage.getItem(OVERRIDES_KEY); return d ? JSON.parse(d) : {} } catch { return {} }
 }
 function saveOverrides(o) {
   try { localStorage.setItem(OVERRIDES_KEY, JSON.stringify(o)) } catch {}
 }
 
-// stable ID — industry + normalized company + normalized name
 function makeId(industry, company, name) {
-  const slug = s => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40)
+  var slug = function(s) { return (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40) }
   return slug(industry) + '__' + slug(company) + '__' + slug(name)
 }
 
-const pick = (row, ...keys) => {
-  for (const k of keys) {
-    if (row[k] !== undefined && row[k] !== '') return String(row[k]).trim()
+function str(v) { return (v === undefined || v === null) ? '' : String(v).trim() }
+
+// Parse CSV text manually by column index — no header-name dependency
+// Columns: 0=Company, 1=FirstName, 2=LastName, 3=FullName, 4=JobTitle,
+//          5=Location, 6=Domain(skip), 7=LinkedIn, 8=Email, 9=Phone
+function parseCSVByIndex(csvText, industry, overrides) {
+  console.log('[csv] ' + industry + ' raw length:', csvText.length, 'chars')
+
+  // Split into lines, handle \r\n or \n
+  var lines = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+  console.log('[csv] ' + industry + ' total lines:', lines.length)
+
+  var contacts = []
+
+  for (var i = 1; i < lines.length; i++) {  // skip header row 0
+    var line = lines[i].trim()
+    if (!line) continue
+
+    // Simple CSV field split respecting quoted fields
+    var fields = splitCSVLine(line)
+
+    var company  = str(fields[0])
+    var firstName = str(fields[1])
+    var lastName  = str(fields[2])
+    var fullName  = str(fields[3])
+    var jobTitle  = str(fields[4])
+    var location  = str(fields[5])
+    var linkedin  = str(fields[7])
+    var email     = str(fields[8])
+    var phone     = str(fields[9])
+
+    var name = fullName || (firstName || lastName ? (firstName + ' ' + lastName).trim() : '')
+
+    if (!name && !company) continue  // skip empty rows
+
+    var id = makeId(industry, company, name)
+    var ov = overrides[id] || {}
+
+    contacts.push({
+      id:       id,
+      name:     name,
+      company:  company,
+      jobTitle: jobTitle,
+      location: location,
+      state:    location,  // use location as state (no separate State column)
+      industry: industry,
+      linkedin: linkedin,
+      email:    email,
+      phone:    phone,
+      status:   ov.status || 'New',
+      notes:    ov.notes  || '',
+    })
   }
-  return ''
+
+  console.log('[csv] ' + industry + ' parsed contacts:', contacts.length)
+  if (contacts.length > 0) {
+    console.log('[csv] ' + industry + ' sample row:', JSON.stringify(contacts[0]))
+  }
+  return contacts
 }
 
-function parseSheetToContacts(text, industry, overrides) {
-  try {
-    const result = Papa.parse(text, { header: true, skipEmptyLines: true })
-    return result.data.map(function(row) {
-      const fullName  = pick(row, 'Full Name', 'full name', 'FullName')
-      const firstName = pick(row, 'First Name', 'first name', 'FirstName')
-      const lastName  = pick(row, 'Last Name', 'last name', 'LastName')
-      const name      = fullName || ((firstName || lastName) ? (firstName + ' ' + lastName).trim() : pick(row, 'Name', 'name', 'Contact Name'))
-      const company   = pick(row, 'Company Name', 'Company', 'company', 'Organization')
-      const location  = pick(row, 'Location', 'location', 'City', 'city')
-      const id        = makeId(industry, company, name)
-      const override  = overrides[id] || {}
-      return {
-        id,
-        name,
-        company,
-        jobTitle: pick(row, 'Job Title', 'jobTitle', 'Title', 'Designation', 'Role'),
-        location,
-        state:    pick(row, 'State', 'state') || location,
-        industry,
-        linkedin: pick(row, 'LinkedIn Profile', 'LinkedIn URL', 'LinkedIn', 'linkedin'),
-        email:    pick(row, 'Email ID', 'Email', 'email', 'E-mail', 'EmailID'),
-        phone:    pick(row, 'Contact', 'Phone', 'phone', 'Mobile', 'mobile', 'Phone Number'),
-        status:   override.status || 'New',
-        notes:    override.notes  || '',
-      }
-    }).filter(function(c) { return c.name || c.company })
-  } catch (e) {
-    console.error('[parse] ' + industry + ':', e)
-    return []
+// CSV line splitter that handles quoted fields
+function splitCSVLine(line) {
+  var fields = []
+  var cur = ''
+  var inQuote = false
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i]
+    if (ch === '"') {
+      if (inQuote && line[i+1] === '"') { cur += '"'; i++ }
+      else inQuote = !inQuote
+    } else if (ch === ',' && !inQuote) {
+      fields.push(cur); cur = ''
+    } else {
+      cur += ch
+    }
   }
+  fields.push(cur)
+  return fields
 }
 
 function formatAgo(ts) {
   if (!ts) return null
-  const secs = Math.floor((Date.now() - ts) / 1000)
+  var secs = Math.floor((Date.now() - ts) / 1000)
   if (secs < 5)    return 'just now'
   if (secs < 60)   return secs + 's ago'
   if (secs < 120)  return '1 min ago'
@@ -72,49 +111,56 @@ function formatAgo(ts) {
 }
 
 async function fetchAllSheets(overrides) {
-  const allContacts = []
-  const errors = []
+  var results = []
+  var errors  = []
+  var industries = Object.keys(SHEET_URLS)
 
-  await Promise.all(Object.keys(SHEET_URLS).map(async function(industry) {
-    const url = SHEET_URLS[industry]
+  console.log('[sync] starting fetch of', industries.length, 'sheets')
+
+  var fetches = industries.map(async function(industry) {
+    var url = SHEET_URLS[industry]
+    console.log('[sync] fetching', industry, url)
     try {
-      const res = await fetch(url)
+      var res = await fetch(url)
+      console.log('[sync]', industry, 'HTTP', res.status, 'ok:', res.ok)
       if (!res.ok) { errors.push(industry + ': HTTP ' + res.status); return }
-      const text = await res.text()
-      const contacts = parseSheetToContacts(text, industry, overrides)
-      console.log('[sync] ' + industry + ': ' + contacts.length + ' contacts')
-      allContacts.push(...contacts)
+      var text = await res.text()
+      console.log('[sync]', industry, 'got', text.length, 'bytes')
+      var contacts = parseCSVByIndex(text, industry, overrides)
+      results.push(...contacts)
     } catch (e) {
       errors.push(industry + ': ' + e.message)
-      console.error('[sync] ' + industry + ' failed:', e)
+      console.error('[sync]', industry, 'FAILED:', e.message)
     }
-  }))
+  })
 
+  await Promise.all(fetches)
+  console.log('[sync] total contacts after all sheets:', results.length)
   if (errors.length) console.warn('[sync] errors:', errors)
-  return { contacts: allContacts, errors }
+  return { contacts: results, errors: errors }
 }
 
 export default function Dashboard({ onLogout }) {
-  const [contacts, setContacts]       = useState([])
-  const [overrides, setOverrides]     = useState(loadOverrides)
-  const [loading, setLoading]         = useState(true)   // true until first fetch done
-  const [activeTab, setActiveTab]     = useState('All')
-  const [search, setSearch]           = useState('')
-  const [stateFilter, setStateFilter] = useState('All States')
-  const [statusFilter, setStatusFilter] = useState('All')
-  const [editingCell, setEditingCell] = useState(null)
-  const [editValue, setEditValue]     = useState('')
-  const [notesModal, setNotesModal]   = useState(null)
-  const [syncing, setSyncing]         = useState(false)
-  const [syncMsg, setSyncMsg]         = useState('')
-  const [lastSyncTs, setLastSyncTs]   = useState(function() {
-    try { const v = localStorage.getItem(LAST_SYNC_KEY); return v ? Number(v) : null } catch { return null }
+  var [contacts, setContacts]       = useState([])
+  var [overrides, setOverrides]     = useState(loadOverrides)
+  var [loading, setLoading]         = useState(true)
+  var [activeTab, setActiveTab]     = useState('All')
+  var [search, setSearch]           = useState('')
+  var [stateFilter, setStateFilter] = useState('All States')
+  var [statusFilter, setStatusFilter] = useState('All')
+  var [editingCell, setEditingCell] = useState(null)
+  var [editValue, setEditValue]     = useState('')
+  var [notesModal, setNotesModal]   = useState(null)
+  var [syncing, setSyncing]         = useState(false)
+  var [syncMsg, setSyncMsg]         = useState('')
+  var [lastSyncTs, setLastSyncTs]   = useState(function() {
+    try { var v = localStorage.getItem(LAST_SYNC_KEY); return v ? Number(v) : null } catch { return null }
   })
-  const [ticker, setTicker]           = useState(0)
+  var [ticker, setTicker] = useState(0)
 
-  const editRef     = useRef(null)
-  const syncingRef  = useRef(false)
-  const overridesRef = useRef(overrides)
+  var editRef      = useRef(null)
+  var syncingRef   = useRef(false)
+  var overridesRef = useRef(overrides)
 
   useEffect(function() { overridesRef.current = overrides; saveOverrides(overrides) }, [overrides])
   useEffect(function() { if (editingCell && editRef.current) editRef.current.focus() }, [editingCell])
@@ -123,24 +169,26 @@ export default function Dashboard({ onLogout }) {
     return function() { clearInterval(t) }
   }, [])
 
-  const doSync = useCallback(function() {
-    if (syncingRef.current) return
+  var doSync = useCallback(function() {
+    if (syncingRef.current) { console.log('[sync] already syncing, skipping'); return }
     syncingRef.current = true
     setSyncing(true)
     setSyncMsg('')
+    console.log('[sync] doSync called, overrides count:', Object.keys(overridesRef.current).length)
     fetchAllSheets(overridesRef.current).then(function(result) {
+      console.log('[sync] setting contacts:', result.contacts.length)
       setContacts(result.contacts)
       setLoading(false)
       var now = Date.now()
       setLastSyncTs(now)
       try { localStorage.setItem(LAST_SYNC_KEY, String(now)) } catch {}
-      var msg = result.contacts.length + ' contacts loaded'
-      if (result.errors.length) msg += ' ⚠️ ' + result.errors.length + ' failed'
+      var msg = result.contacts.length + ' contacts'
+      if (result.errors.length) msg += ' ⚠️ ' + result.errors.length + ' sheet(s) failed'
       setSyncMsg(msg)
       setSyncing(false)
       syncingRef.current = false
     }).catch(function(e) {
-      console.error('[sync] fatal:', e)
+      console.error('[sync] FATAL:', e)
       setSyncMsg('❌ ' + e.message)
       setLoading(false)
       setSyncing(false)
@@ -148,37 +196,35 @@ export default function Dashboard({ onLogout }) {
     })
   }, [])
 
-  // initial fetch on mount
   useEffect(function() { doSync() }, [doSync])
 
-  // auto-poll every 60s
   useEffect(function() {
     var t = setInterval(doSync, SYNC_INTERVAL_MS)
     return function() { clearInterval(t) }
   }, [doSync])
 
-  const filtered = useMemo(function() {
+  var filtered = useMemo(function() {
     return contacts.filter(function(c) {
       if (activeTab !== 'All' && c.industry !== activeTab) return false
       if (stateFilter !== 'All States' && c.state !== stateFilter) return false
       if (statusFilter !== 'All' && c.status !== statusFilter) return false
       if (search) {
         var q = search.toLowerCase()
-        return (c.name || '').toLowerCase().indexOf(q) !== -1 ||
-          (c.company || '').toLowerCase().indexOf(q) !== -1 ||
-          (c.location || '').toLowerCase().indexOf(q) !== -1 ||
-          (c.email || '').toLowerCase().indexOf(q) !== -1
+        return (c.name || '').toLowerCase().indexOf(q) >= 0 ||
+          (c.company || '').toLowerCase().indexOf(q) >= 0 ||
+          (c.location || '').toLowerCase().indexOf(q) >= 0 ||
+          (c.email || '').toLowerCase().indexOf(q) >= 0
       }
       return true
     })
   }, [contacts, activeTab, stateFilter, statusFilter, search])
 
-  const stats = useMemo(function() {
+  var stats = useMemo(function() {
     var base = activeTab === 'All' ? contacts : contacts.filter(function(c) { return c.industry === activeTab })
     return {
       total:      base.length,
-      contacted:  base.filter(function(c) { return ['Contacted','Interested','Meeting Scheduled','Deal Closed'].indexOf(c.status) !== -1 }).length,
-      interested: base.filter(function(c) { return ['Interested','Meeting Scheduled'].indexOf(c.status) !== -1 }).length,
+      contacted:  base.filter(function(c) { return ['Contacted','Interested','Meeting Scheduled','Deal Closed'].indexOf(c.status) >= 0 }).length,
+      interested: base.filter(function(c) { return ['Interested','Meeting Scheduled'].indexOf(c.status) >= 0 }).length,
       closed:     base.filter(function(c) { return c.status === 'Deal Closed' }).length,
     }
   }, [contacts, activeTab])
@@ -189,22 +235,21 @@ export default function Dashboard({ onLogout }) {
       next[id] = Object.assign({}, next[id] || {}, { [field]: value })
       return next
     })
-    // also update contacts in-memory so UI reflects immediately
     setContacts(function(prev) {
       return prev.map(function(c) { return c.id === id ? Object.assign({}, c, { [field]: value }) : c })
     })
   }
 
   function startEdit(id, field, value)  { setEditingCell(id + '__' + field); setEditValue(value || '') }
-  function commitEdit(id, field)         { updateOverride(id, field, editValue); setEditingCell(null) }
+  function commitEdit(id, field)        { updateOverride(id, field, editValue); setEditingCell(null) }
   function handleEditKeyDown(e, id, field) {
-    if (e.key === 'Enter') commitEdit(id, field)
+    if (e.key === 'Enter')  commitEdit(id, field)
     if (e.key === 'Escape') setEditingCell(null)
   }
 
   function exportCSV() {
-    var fields  = ['name','company','jobTitle','location','state','industry','linkedin','email','phone','status','notes']
-    var headers = ['Name','Company','Job Title','Location','State','Industry','LinkedIn','Email','Phone','Status','Notes']
+    var fields  = ['name','company','jobTitle','location','industry','linkedin','email','phone','status','notes']
+    var headers = ['Name','Company','Job Title','Location','Industry','LinkedIn','Email','Phone','Status','Notes']
     var rows = [headers].concat(filtered.map(function(c) {
       return fields.map(function(f) { return '"' + (c[f] || '').replace(/"/g, '""') + '"' })
     }))
@@ -216,16 +261,29 @@ export default function Dashboard({ onLogout }) {
   }
 
   function debugFetch() {
-    var url = Object.values(SHEET_URLS)[0]
-    alert('Testing fetch of Education Schools...\n' + url)
+    var url = SHEET_URLS['Education Schools']
+    console.log('[debug] fetching:', url)
     fetch(url).then(function(res) {
-      return res.text().then(function(text) {
-        alert('HTTP ' + res.status + '\nCORS: ' + res.headers.get('access-control-allow-origin') + '\nRows: ' + text.split('\n').length + '\nFirst 400 chars:\n' + text.slice(0, 400))
-      })
-    }).catch(function(e) { alert('FETCH FAILED:\n' + e.message) })
+      console.log('[debug] HTTP', res.status, 'CORS:', res.headers.get('access-control-allow-origin'))
+      return res.text()
+    }).then(function(text) {
+      var lines = text.replace(/\r\n/g, '\n').split('\n')
+      console.log('[debug] lines:', lines.length)
+      console.log('[debug] header row:', lines[0])
+      console.log('[debug] first data row:', lines[1])
+      alert('Education Schools fetch result:\n' +
+        'Lines: ' + lines.length + '\n' +
+        'Header: ' + lines[0].slice(0,80) + '\n' +
+        'Row 1: ' + lines[1].slice(0,120))
+    }).catch(function(e) {
+      console.error('[debug] fetch failed:', e)
+      alert('FETCH FAILED: ' + e.message)
+    })
   }
 
-  var agoText = syncing ? 'Fetching sheets...' : (lastSyncTs ? '🔄 Last synced: ' + formatAgo(lastSyncTs) : '🔄 Loading...')
+  var agoText = syncing
+    ? 'Fetching all sheets...'
+    : (lastSyncTs ? '🔄 Last synced: ' + formatAgo(lastSyncTs) : '🔄 Loading...')
 
   if (loading) {
     return (
@@ -265,12 +323,8 @@ export default function Dashboard({ onLogout }) {
           <button className="btn-ghost" onClick={doSync} disabled={syncing}>
             {syncing ? '⟳ Syncing…' : '⟳ Sync Now'}
           </button>
-          <button className="btn-ghost" onClick={debugFetch} title="Test raw fetch">
-            🐛 Debug
-          </button>
-          <button className="btn-ghost" onClick={exportCSV}>
-            📤 Export {filtered.length}
-          </button>
+          <button className="btn-ghost" onClick={debugFetch}>🐛 Debug</button>
+          <button className="btn-ghost" onClick={exportCSV}>📤 Export {filtered.length}</button>
           <button className="btn-logout" onClick={onLogout}>Logout</button>
         </div>
       </header>
@@ -284,12 +338,12 @@ export default function Dashboard({ onLogout }) {
 
       <div className="tabs-bar">
         {TABS.map(function(tab) {
+          var count = tab === 'All' ? contacts.length : contacts.filter(function(c) { return c.industry === tab }).length
           return (
-            <button key={tab} className={'tab-btn' + (activeTab === tab ? ' active' : '')} onClick={function() { setActiveTab(tab) }}>
+            <button key={tab} className={'tab-btn' + (activeTab === tab ? ' active' : '')}
+              onClick={function() { setActiveTab(tab) }}>
               {tab}
-              {tab !== 'All' && (
-                <span className="tab-count">{contacts.filter(function(c) { return c.industry === tab }).length}</span>
-              )}
+              <span className="tab-count">{count}</span>
             </button>
           )
         })}
@@ -324,7 +378,9 @@ export default function Dashboard({ onLogout }) {
           </thead>
           <tbody>
             {filtered.length === 0 && (
-              <tr><td colSpan={11} className="empty-state">No contacts found.</td></tr>
+              <tr><td colSpan={11} className="empty-state">
+                No contacts. Check console (F12) for sync logs.
+              </td></tr>
             )}
             {filtered.map(function(c, idx) {
               return (
@@ -372,7 +428,7 @@ export default function Dashboard({ onLogout }) {
                     </select>
                   </td>
                   <td>
-                    <button className="notes-btn" onClick={function() { setNotesModal(c) }} title={c.notes || 'Add notes'}>
+                    <button className="notes-btn" onClick={function() { setNotesModal(c) }}>
                       {c.notes ? '📝' : '+ Note'}
                     </button>
                   </td>
