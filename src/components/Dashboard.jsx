@@ -31,6 +31,8 @@ export default function Dashboard({ onLogout }) {
   const [editingCell, setEditingCell] = useState(null)
   const [editValue, setEditValue] = useState('')
   const [importUrl, setImportUrl] = useState('')
+  const [importIndustry, setImportIndustry] = useState(INDUSTRIES[0])
+  const [importMode, setImportMode] = useState('append')
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState('')
   const [showImportPanel, setShowImportPanel] = useState(false)
@@ -98,24 +100,45 @@ export default function Dashboard({ onLogout }) {
       const text = await res.text()
       const result = Papa.parse(text, { header: true, skipEmptyLines: true })
       if (result.errors.length && !result.data.length) throw new Error('Parse failed')
-      const newContacts = result.data.map((row, i) => ({
-        id: `imported_${Date.now()}_${i}`,
-        name: row['Name'] || row['name'] || row['Contact Name'] || '',
-        company: row['Company'] || row['company'] || row['Organization'] || '',
-        jobTitle: row['Job Title'] || row['jobTitle'] || row['Title'] || row['Designation'] || '',
-        location: row['Location'] || row['location'] || row['City'] || '',
-        state: row['State'] || row['state'] || row['Location'] || '',
-        industry: row['Industry'] || row['industry'] || row['Category'] || 'Corporate IT',
-        linkedin: row['LinkedIn'] || row['linkedin'] || row['LinkedIn URL'] || '',
-        email: row['Email'] || row['email'] || '',
-        phone: row['Phone'] || row['phone'] || row['Mobile'] || '',
-        status: STATUSES.includes(row['Status'] || row['status']) ? (row['Status'] || row['status']) : 'New',
-        notes: row['Notes'] || row['notes'] || '',
-      })).filter(c => c.name || c.company)
+
+      const pick = (row, ...keys) => {
+        for (const k of keys) if (row[k] !== undefined && row[k] !== '') return row[k]
+        return ''
+      }
+
+      const newContacts = result.data.map((row, i) => {
+        // Name: prefer Full Name, fallback to First+Last, then Name variants
+        const fullName = pick(row, 'Full Name', 'full name', 'FullName')
+        const firstName = pick(row, 'First Name', 'first name', 'FirstName')
+        const lastName = pick(row, 'Last Name', 'last name', 'LastName')
+        const name = fullName || (firstName || lastName ? `${firstName} ${lastName}`.trim() : pick(row, 'Name', 'name', 'Contact Name'))
+
+        const location = pick(row, 'Location', 'location', 'City', 'city')
+
+        // Industry: use the dropdown selection; fallback to sheet column if present
+        const industry = pick(row, 'Industry', 'industry', 'Category') || importIndustry
+
+        return {
+          id: `imported_${Date.now()}_${i}`,
+          name,
+          company:  pick(row, 'Company Name', 'Company', 'company', 'Organization', 'org'),
+          jobTitle: pick(row, 'Job Title', 'jobTitle', 'Title', 'Designation', 'Role'),
+          location,
+          state:    pick(row, 'State', 'state') || location,
+          industry,
+          linkedin: pick(row, 'LinkedIn Profile', 'LinkedIn URL', 'LinkedIn', 'linkedin'),
+          email:    pick(row, 'Email ID', 'Email', 'email', 'E-mail', 'EmailID'),
+          phone:    pick(row, 'Contact', 'Phone', 'phone', 'Mobile', 'mobile', 'Phone Number'),
+          status:   STATUSES.includes(pick(row, 'Status', 'status')) ? pick(row, 'Status', 'status') : 'New',
+          notes:    pick(row, 'Notes', 'notes', 'Remarks', 'Comment'),
+        }
+      }).filter(c => c.name || c.company)
+
       if (!newContacts.length) throw new Error('No valid rows found')
-      setContacts(newContacts)
+
+      setContacts(prev => importMode === 'append' ? [...prev, ...newContacts] : newContacts)
       localStorage.setItem(LAST_IMPORT_KEY, new Date().toLocaleString())
-      setImportMsg(`✅ Imported ${newContacts.length} contacts successfully!`)
+      setImportMsg(`✅ Imported ${newContacts.length} contacts into "${importIndustry}"`)
       setShowImportPanel(false)
     } catch (err) {
       setImportMsg(`❌ Import failed: ${err.message}`)
@@ -169,7 +192,7 @@ export default function Dashboard({ onLogout }) {
         <div className="import-panel">
           <div className="import-inner">
             <h3>📥 Import from Google Sheets / CSV URL</h3>
-            <p className="import-hint">Publish sheet as CSV: File → Share → Publish to web → CSV format</p>
+            <p className="import-hint">Publish sheet as CSV: File → Share → Publish to web → CSV format, then copy URL</p>
             <div className="import-row">
               <input
                 type="url"
@@ -178,6 +201,21 @@ export default function Dashboard({ onLogout }) {
                 placeholder="https://docs.google.com/spreadsheets/d/.../pub?output=csv"
                 className="import-input"
               />
+            </div>
+            <div className="import-options">
+              <div className="import-option-group">
+                <label>Assign to Industry</label>
+                <select value={importIndustry} onChange={e => setImportIndustry(e.target.value)}>
+                  {INDUSTRIES.map(ind => <option key={ind} value={ind}>{ind}</option>)}
+                </select>
+              </div>
+              <div className="import-option-group">
+                <label>Import Mode</label>
+                <select value={importMode} onChange={e => setImportMode(e.target.value)}>
+                  <option value="append">Append to existing</option>
+                  <option value="replace">Replace all contacts</option>
+                </select>
+              </div>
               <button className="btn-accent" onClick={importFromUrl} disabled={importing || !importUrl.trim()}>
                 {importing ? 'Importing...' : 'Import'}
               </button>
@@ -185,7 +223,7 @@ export default function Dashboard({ onLogout }) {
             </div>
             {importMsg && <div className={`import-msg ${importMsg.startsWith('✅') ? 'success' : 'error'}`}>{importMsg}</div>}
             <div className="import-columns">
-              <strong>Expected CSV columns:</strong> Name, Company, Job Title, Location, State, Industry, LinkedIn, Email, Phone, Status, Notes
+              <strong>Google Sheets columns supported:</strong> Full Name (or First Name + Last Name), Company Name, Job Title, Location, LinkedIn Profile, Email ID, Contact
             </div>
           </div>
         </div>
