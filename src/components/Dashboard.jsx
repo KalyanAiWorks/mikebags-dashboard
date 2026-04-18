@@ -81,7 +81,7 @@ async function fetchAllSheets(currentContacts) {
     const url = SHEET_URLS[industry]
     if (!url) return
     try {
-      const res = await fetch(url)
+      const res = await fetch('https://corsproxy.io/?' + encodeURIComponent(url))
       if (!res.ok) return
       const text = await res.text()
       const rows = parseSheetRows(text)
