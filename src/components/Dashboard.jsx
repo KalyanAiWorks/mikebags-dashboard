@@ -17,8 +17,26 @@ function loadContacts() {
 }
 function saveContacts(c) { localStorage.setItem(STORAGE_KEY, JSON.stringify(c)) }
 
+const DEFAULT_SETTINGS = {
+  autoSync: true,
+  syncInterval: 60,
+  sheetUrls: {
+    'Education Schools': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9MoKZbsWbpl07_fC-earIWWakEasP5FwLGlrLpsgJLl9RhEZ95mKxa0Nhu6508VslIaZ4I77Vhser/pub?gid=0&single=true&output=csv',
+  }
+}
+
 function loadSettings() {
-  try { const d = localStorage.getItem(SETTINGS_KEY); return d ? JSON.parse(d) : {} } catch { return {} }
+  try {
+    const d = localStorage.getItem(SETTINGS_KEY)
+    if (!d) return DEFAULT_SETTINGS
+    const saved = JSON.parse(d)
+    // merge: ensure Education Schools URL is always present if not overridden
+    return {
+      ...DEFAULT_SETTINGS,
+      ...saved,
+      sheetUrls: { ...DEFAULT_SETTINGS.sheetUrls, ...(saved.sheetUrls || {}) }
+    }
+  } catch { return DEFAULT_SETTINGS }
 }
 
 /** Parse one CSV text blob → array of { name, company, email, phone } for matching */
@@ -143,41 +161,54 @@ export default function Dashboard({ onLogout }) {
     return { updated, contacts: next }
   }, [])
 
-  const doSync = useCallback(async () => {
+  const doSync = useCallback(() => {
     if (syncing) return
     setSyncing(true)
     setSyncMsg('')
-    const snap = contacts     // capture current value
-    const snap2 = settings
-    const { updated, contacts: next } = await runSync(snap, snap2)
-    setContacts(next)
-    const now = Date.now()
-    setLastSyncTs(now)
-    localStorage.setItem(LAST_SYNC_KEY, String(now))
-    setSyncMsg(updated ? `${updated} updated` : 'Up to date')
-    setSyncing(false)
-  }, [contacts, settings, syncing, runSync])
+    syncNow()
+  }, [syncing, syncNow])
 
-  // polling interval
+  const syncNow = useCallback((currentSettings) => {
+    const s = currentSettings || settings
+    setContacts(prev => {
+      runSync(prev, s).then(({ updated, contacts: next }) => {
+        if (updated) setContacts(next)
+        const now = Date.now()
+        setLastSyncTs(now)
+        localStorage.setItem(LAST_SYNC_KEY, String(now))
+        setSyncMsg(updated ? `${updated} updated` : 'Up to date')
+        setSyncing(false)
+      })
+      return prev
+    })
+  }, [settings, runSync])
+
+  // initial sync on mount
   useEffect(() => {
+    const initialSettings = loadSettings()
+    const urls = initialSettings.sheetUrls || {}
+    if (Object.values(urls).some(Boolean)) {
+      setSyncing(true)
+      setSyncMsg('')
+      syncNow(initialSettings)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // polling interval — runs whenever autoSync is on OR URLs are configured
+  useEffect(() => {
+    const urls = settings.sheetUrls || {}
+    const hasUrls = Object.values(urls).some(Boolean)
+    if (!settings.autoSync && !hasUrls) return
     if (!settings.autoSync) return
     const ms = (settings.syncInterval || 60) * 1000
     const t = setInterval(() => {
-      setContacts(prev => {
-        // run async outside setState — use ref trick via doSync equivalent
-        // we call async via a self-invoking function to avoid stale closure
-        runSync(prev, settings).then(({ updated, contacts: next }) => {
-          if (updated) setContacts(next)
-          const now = Date.now()
-          setLastSyncTs(now)
-          localStorage.setItem(LAST_SYNC_KEY, String(now))
-          if (updated) setSyncMsg(`${updated} updated`)
-        })
-        return prev   // don't change synchronously
-      })
+      setSyncing(true)
+      setSyncMsg('')
+      syncNow()
     }, ms)
     return () => clearInterval(t)
-  }, [settings, runSync])
+  }, [settings, syncNow])
 
   // ── derived state ──────────────────────────────────────────────────────────
 
@@ -314,22 +345,17 @@ export default function Dashboard({ onLogout }) {
         </div>
       </header>
 
-      {/* sync sub-bar — only shown when there's status to display */}
-      {(settings.autoSync || lastSyncTs) && (
-        <div className="sync-sub-bar">
-          {settings.autoSync && (
-            <span className={`sync-badge ${syncing ? 'syncing' : 'active'}`}>
-              {syncing ? '⟳ Syncing...' : '⟳ Auto-Sync ON'}
-            </span>
-          )}
-          {lastSyncTs && (
-            <span className="last-sync" key={ticker}>
-              Last synced: {formatAgo(lastSyncTs)}
-              {syncMsg && <span className="sync-diff"> · {syncMsg}</span>}
-            </span>
-          )}
-        </div>
-      )}
+      {/* sync sub-bar */}
+      <div className="sync-sub-bar">
+        <span className={`sync-badge ${syncing ? 'syncing' : 'active'}`}>
+          <span className="sync-dot" />
+          {syncing ? 'Syncing...' : 'Auto-Sync ON'}
+        </span>
+        <span className="last-sync" key={ticker}>
+          {syncing ? 'Fetching sheets...' : lastSyncTs ? `🔄 Last synced: ${formatAgo(lastSyncTs)}` : '🔄 Waiting for first sync...'}
+          {!syncing && syncMsg && <span className="sync-diff"> · {syncMsg}</span>}
+        </span>
+      </div>
 
       {showImportPanel && (
         <div className="import-panel">

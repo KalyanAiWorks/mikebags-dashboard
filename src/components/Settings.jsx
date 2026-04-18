@@ -4,7 +4,7 @@ import './Settings.css'
 
 export default function Settings({ settings, onSave, onClose }) {
   const [urls, setUrls] = useState(settings.sheetUrls || {})
-  const [autoSync, setAutoSync] = useState(settings.autoSync || false)
+  const [autoSync, setAutoSync] = useState(settings.autoSync !== undefined ? settings.autoSync : true)
   const [interval, setInterval] = useState(settings.syncInterval || 60)
 
   const setUrl = (industry, val) => setUrls(prev => ({ ...prev, [industry]: val }))
