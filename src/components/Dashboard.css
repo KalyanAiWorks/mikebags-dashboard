@@ -51,6 +51,59 @@
 .btn-accent:hover:not(:disabled) { background: var(--accent-hover); }
 .btn-accent:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* ===== SYNC STATUS ===== */
+.sync-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.sync-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 12px;
+  letter-spacing: 0.3px;
+}
+.sync-badge.active {
+  background: rgba(0,200,83,0.15);
+  color: #00c853;
+  border: 1px solid rgba(0,200,83,0.4);
+}
+.sync-badge.syncing {
+  background: rgba(255,107,0,0.15);
+  color: var(--accent);
+  border: 1px solid rgba(255,107,0,0.4);
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.5 } }
+
+.last-sync {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.sync-diff {
+  color: #00c853;
+  font-weight: 600;
+}
+
+.btn-ghost.sync-on {
+  border-color: rgba(0,200,83,0.5);
+  color: #00c853;
+}
+.badge-count {
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  margin-left: 4px;
+}
+
 .btn-logout {
   background: rgba(255,68,68,0.1);
   color: #ff6b6b;
