@@ -76,14 +76,17 @@ async function fetchAllSheets(currentContacts) {
   let updated = 0
   let next = currentContacts.slice()
   const industries = Object.keys(SHEET_URLS)
+  const errors = []
 
   await Promise.all(industries.map(async function(industry) {
     const url = SHEET_URLS[industry]
     if (!url) return
     try {
-      const res = await fetch('https://corsproxy.io/?' + encodeURIComponent(url))
-      if (!res.ok) return
+      // direct fetch — Google Sheets pub CSV returns Access-Control-Allow-Origin: *
+      const res = await fetch(url)
+      if (!res.ok) { errors.push(industry + ': HTTP ' + res.status); return }
       const text = await res.text()
+      console.log('[sync] ' + industry + ': ' + text.split('\n').length + ' rows')
       const rows = parseSheetRows(text)
       rows.forEach(function(sheetRow) {
         const matched = matchContact(sheetRow, next)
@@ -97,11 +100,13 @@ async function fetchAllSheets(currentContacts) {
         }
       })
     } catch (e) {
-      // network error — skip this sheet silently
+      errors.push(industry + ': ' + e.message)
+      console.error('[sync] ' + industry + ' failed:', e)
     }
   }))
 
-  return { updated: updated, contacts: next }
+  if (errors.length) console.warn('[sync] errors:', errors)
+  return { updated: updated, contacts: next, errors: errors }
 }
 
 export default function Dashboard({ onLogout }) {
@@ -150,10 +155,14 @@ export default function Dashboard({ onLogout }) {
       var now = Date.now()
       setLastSyncTs(now)
       try { localStorage.setItem(LAST_SYNC_KEY, String(now)) } catch {}
-      setSyncMsg(result.updated > 0 ? result.updated + ' updated' : 'Up to date')
+      var msg = result.updated > 0 ? result.updated + ' updated' : 'Up to date'
+      if (result.errors && result.errors.length) msg += ' ⚠️ ' + result.errors.length + ' failed'
+      setSyncMsg(msg)
       setSyncing(false)
       syncingRef.current = false
-    }).catch(function() {
+    }).catch(function(e) {
+      console.error('[sync] fatal:', e)
+      setSyncMsg('❌ ' + e.message)
       setSyncing(false)
       syncingRef.current = false
     })
@@ -221,6 +230,18 @@ export default function Dashboard({ onLogout }) {
     if (confirm('Reset to sample data? This will clear all current contacts.')) setContacts(SAMPLE_DATA)
   }
 
+  function debugFetch() {
+    var url = Object.values(SHEET_URLS)[0]
+    alert('Testing fetch of Education Schools sheet...\n' + url)
+    fetch(url).then(function(res) {
+      return res.text().then(function(text) {
+        alert('HTTP ' + res.status + '\nCORS: ' + res.headers.get('access-control-allow-origin') + '\nFirst 300 chars:\n' + text.slice(0, 300))
+      })
+    }).catch(function(e) {
+      alert('FETCH FAILED:\n' + e.message)
+    })
+  }
+
   var agoText = syncing ? 'Fetching...' : (lastSyncTs ? '🔄 Last synced: ' + formatAgo(lastSyncTs) : '🔄 Starting...')
 
   return (
@@ -248,6 +269,9 @@ export default function Dashboard({ onLogout }) {
         <div className="header-right">
           <button className="btn-ghost" onClick={doSync} disabled={syncing}>
             {syncing ? '⟳ Syncing…' : '⟳ Sync Now'}
+          </button>
+          <button className="btn-ghost" onClick={debugFetch} title="Test raw fetch and show result">
+            🐛 Debug
           </button>
           <button className="btn-ghost" onClick={exportCSV}>
             📤 Export {filtered.length}
