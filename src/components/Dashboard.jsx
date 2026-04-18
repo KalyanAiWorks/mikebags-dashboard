@@ -290,10 +290,36 @@ export default function Dashboard({ onLogout }) {
           </div>
         </div>
 
-        <div className="sync-status-bar">
+        <div className="header-right">
+          <button className="btn-settings" onClick={() => setShowSettings(true)}>
+            ⚙️ Settings
+            {configuredUrls > 0 && <span className="badge-count">{configuredUrls}</span>}
+          </button>
+          <button
+            className={`btn-ghost ${settings.autoSync ? 'sync-on' : ''}`}
+            onClick={doSync}
+            disabled={syncing || configuredUrls === 0}
+            title={configuredUrls === 0 ? 'Configure sheet URLs in Settings first' : 'Pull latest data from all sheets'}
+          >
+            {syncing ? '⟳ Syncing…' : '⟳ Sync Now'}
+          </button>
+          <button className="btn-ghost" onClick={() => setShowImportPanel(!showImportPanel)}>
+            📥 Import CSV
+          </button>
+          <button className="btn-ghost" onClick={exportCSV}>
+            📤 Export {filtered.length}
+          </button>
+          <button className="btn-ghost btn-icon" onClick={resetToSample} title="Reset to sample data">🔄</button>
+          <button className="btn-logout" onClick={onLogout}>Logout</button>
+        </div>
+      </header>
+
+      {/* sync sub-bar — only shown when there's status to display */}
+      {(settings.autoSync || lastSyncTs) && (
+        <div className="sync-sub-bar">
           {settings.autoSync && (
             <span className={`sync-badge ${syncing ? 'syncing' : 'active'}`}>
-              {syncing ? '⟳ Syncing...' : `⟳ Auto-Sync ON`}
+              {syncing ? '⟳ Syncing...' : '⟳ Auto-Sync ON'}
             </span>
           )}
           {lastSyncTs && (
@@ -303,29 +329,7 @@ export default function Dashboard({ onLogout }) {
             </span>
           )}
         </div>
-
-        <div className="header-right">
-          <button
-            className={`btn-ghost ${settings.autoSync ? 'sync-on' : ''}`}
-            onClick={doSync}
-            disabled={syncing || configuredUrls === 0}
-            title={configuredUrls === 0 ? 'Add sheet URLs in Settings first' : 'Sync now from all sheets'}
-          >
-            {syncing ? '⟳ Syncing…' : '⟳ Sync Now'}
-          </button>
-          <button className="btn-ghost" onClick={() => setShowSettings(true)}>
-            ⚙️ Settings {configuredUrls > 0 && <span className="badge-count">{configuredUrls}</span>}
-          </button>
-          <button className="btn-ghost" onClick={() => setShowImportPanel(!showImportPanel)}>
-            📥 Import
-          </button>
-          <button className="btn-ghost" onClick={exportCSV}>
-            📤 Export {filtered.length}
-          </button>
-          <button className="btn-ghost" onClick={resetToSample} title="Reset to sample data">🔄</button>
-          <button className="btn-logout" onClick={onLogout}>Logout</button>
-        </div>
-      </header>
+      )}
 
       {showImportPanel && (
         <div className="import-panel">
