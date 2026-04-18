@@ -1,0 +1,63 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary: #0d0d1a;
+  --bg-secondary: #1a1a2e;
+  --bg-card: #16213e;
+  --bg-table: #0f0f23;
+  --accent: #ff6b00;
+  --accent-hover: #ff8533;
+  --accent-light: rgba(255,107,0,0.15);
+  --text-primary: #e8e8f0;
+  --text-secondary: #9090b0;
+  --text-muted: #606080;
+  --border: #2a2a4a;
+  --border-accent: rgba(255,107,0,0.4);
+  --success: #00c853;
+  --warning: #ffab00;
+  --danger: #ff4444;
+  --info: #2979ff;
+  --purple: #7c4dff;
+  --teal: #00bcd4;
+}
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-secondary); }
+::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 3px; }
+
+button {
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+}
+
+select option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
