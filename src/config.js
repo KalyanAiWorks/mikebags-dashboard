@@ -9,19 +9,18 @@ export const INDUSTRIES = [
   'Sports Gyms',
 ]
 
-// ─── HARDCODED SHEET URLS (gviz CSV — no publishing required) ────────────────
-const _BASE = 'https://docs.google.com/spreadsheets/d/1_1sFSV4MhKXcfU3cgsYbJ5d_FTbbdGqsd427EEDQMLc/gviz/tq?tqx=out:csv&sheet='
+// ─── HARDCODED SHEET URLS ────────────────────────────────────────────────────
 export const SHEET_URLS = {
-  'Education Schools':  _BASE + 'Education+Schools',
-  'Education Colleges': _BASE + 'Education+Colleges',
-  'Corporate IT':       _BASE + 'Corporate+IT',
-  'Corporate FMCG':     _BASE + 'Corporate+FMCG',
-  'Corporate Large':    _BASE + 'Corporate+Large',
-  'Gifting Events':     _BASE + 'Gifting+Events',
-  'Sports Gyms':        _BASE + 'Sports+Gyms',
+  'Education Schools':  'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9MoKZbsWbpl07_fC-earIWWakEasP5FwLGlrLpsgJLl9RhEZ95mKxa0Nhu6508VslIaZ4I77Vhser/pub?gid=0&single=true&output=csv',
+  'Corporate IT':       'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9MoKZbsWbpl07_fC-earIWWakEasP5FwLGlrLpsgJLl9RhEZ95mKxa0Nhu6508VslIaZ4I77Vhser/pub?gid=678456523&single=true&output=csv',
+  'Corporate Large':    'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9MoKZbsWbpl07_fC-earIWWakEasP5FwLGlrLpsgJLl9RhEZ95mKxa0Nhu6508VslIaZ4I77Vhser/pub?gid=2035399782&single=true&output=csv',
+  'Corporate FMCG':     'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9MoKZbsWbpl07_fC-earIWWakEasP5FwLGlrLpsgJLl9RhEZ95mKxa0Nhu6508VslIaZ4I77Vhser/pub?gid=354193506&single=true&output=csv',
+  'Sports Gyms':        'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9MoKZbsWbpl07_fC-earIWWakEasP5FwLGlrLpsgJLl9RhEZ95mKxa0Nhu6508VslIaZ4I77Vhser/pub?gid=603519423&single=true&output=csv',
+  'Gifting Events':     'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9MoKZbsWbpl07_fC-earIWWakEasP5FwLGlrLpsgJLl9RhEZ95mKxa0Nhu6508VslIaZ4I77Vhser/pub?gid=916100209&single=true&output=csv',
+  'Education Colleges': 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9MoKZbsWbpl07_fC-earIWWakEasP5FwLGlrLpsgJLl9RhEZ95mKxa0Nhu6508VslIaZ4I77Vhser/pub?gid=23857437&single=true&output=csv',
 }
 
-export const SYNC_INTERVAL_MS = 60_000
+export const SYNC_INTERVAL_MS = 60000
 
 // ─── LEAD STATUSES ───────────────────────────────────────────────────────────
 export const STATUSES = [
