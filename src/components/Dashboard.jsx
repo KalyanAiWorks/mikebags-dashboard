@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import './Dashboard.css'
-import { INDUSTRIES, STATUSES, STATUS_COLORS, INDIAN_STATES, SHEET_URLS, SYNC_INTERVAL_MS } from '../config'
+import { INDUSTRIES, STATUSES, STATUS_COLORS, INDIAN_STATES, SHEET_URLS, DATA_URL, SYNC_INTERVAL_MS } from '../config'
 
 // localStorage: only overrides (status, notes) — full contacts come from sheets every sync
 const OVERRIDES_KEY = 'mb_overrides_v1'
@@ -112,32 +112,47 @@ function formatAgo(ts) {
 
 async function fetchAllSheets(overrides) {
   var results = []
-  var errors  = []
+  var errors = []
   var industries = Object.keys(SHEET_URLS)
 
-  console.log('[sync] starting fetch of', industries.length, 'sheets')
+  console.log('[sync] fetching', industries.length, 'sheets via CORS proxy')
 
   var fetches = industries.map(async function(industry) {
     var url = SHEET_URLS[industry]
-    console.log('[sync] fetching', industry, url)
     try {
       var res = await fetch(url)
-      console.log('[sync]', industry, 'HTTP', res.status, 'ok:', res.ok)
       if (!res.ok) { errors.push(industry + ': HTTP ' + res.status); return }
       var text = await res.text()
-      console.log('[sync]', industry, 'got', text.length, 'bytes')
       var contacts = parseCSVByIndex(text, industry, overrides)
       results.push(...contacts)
     } catch (e) {
       errors.push(industry + ': ' + e.message)
-      console.error('[sync]', industry, 'FAILED:', e.message)
     }
   })
 
   await Promise.all(fetches)
-  console.log('[sync] total contacts after all sheets:', results.length)
-  if (errors.length) console.warn('[sync] errors:', errors)
+
+  // Fallback to local JSON if all CORS requests failed
+  if (results.length === 0 && errors.length > 0) {
+    console.log('[sync] CORS failed, loading from local cache')
+    try {
+      var res = await fetch(DATA_URL)
+      if (res.ok) {
+        var contacts = await res.json()
+        contacts.forEach(function(c) {
+          var ov = overrides[c.id]
+          if (ov) { c.status = ov.status || c.status; c.notes = ov.notes || c.notes }
+        })
+        return { contacts: contacts, errors: ['Live sync failed, using cached data'] }
+      }
+    } catch (e) {}
+  }
+
   return { contacts: results, errors: errors }
+}
+
+async function fetchContacts(overrides) {
+  return fetchAllSheets(overrides)
 }
 
 export default function Dashboard({ onLogout }) {

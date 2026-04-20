@@ -9,19 +9,21 @@ export const INDUSTRIES = [
   'Sports Gyms',
 ]
 
-// ─── HARDCODED SHEET URLS ────────────────────────────────────────────────────
-// Education Schools: published pub CSV (gid=0 confirmed working)
-// Other 6: gviz CSV — tabs not published, gviz works with CORS for public spreadsheet
-const _GVIZ = 'https://docs.google.com/spreadsheets/d/1_1sFSV4MhKXcfU3cgsYbJ5d_FTbbdGqsd427EEDQMLc/gviz/tq?tqx=out:csv&sheet='
+// ─── LIVE SYNC CONFIG ────────────────────────────────────────────────────────
+// Direct gviz endpoint - requires CORS handling in browser
+const _GVIZ = 'https://docs.google.com/spreadsheets/d/1_1sFSV4MhKXcfU3cgsYbJ5d_FTbbdGqsd427EEDQMLc/gviz/tq?tqx=out:csv&gid='
+
 export const SHEET_URLS = {
-  'Education Schools':  'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ9MoKZbsWbpl07_fC-earIWWakEasP5FwLGlrLpsgJLl9RhEZ95mKxa0Nhu6508VslIaZ4I77Vhser/pub?gid=0&single=true&output=csv',
-  'Education Colleges': _GVIZ + 'Education+Colleges',
-  'Corporate IT':       _GVIZ + 'Corporate+IT',
-  'Corporate FMCG':     _GVIZ + 'Corporate+FMCG',
-  'Corporate Large':    _GVIZ + 'Corporate+Large',
-  'Sports Gyms':        _GVIZ + 'Sports+Gyms',
-  'Gifting Events':     _GVIZ + 'Gifting+Events',
+  'Education Schools':  _GVIZ + '0',
+  'Education Colleges': _GVIZ + '23857437',
+  'Corporate IT':       _GVIZ + '678456523',
+  'Corporate FMCG':     _GVIZ + '354193506',
+  'Corporate Large':    _GVIZ + '2035399782',
+  'Sports Gyms':        _GVIZ + '603519423',
+  'Gifting Events':     _GVIZ + '916100209',
 }
+
+export const DATA_URL = '/mikebags-dashboard/contacts.json'
 
 export const SYNC_INTERVAL_MS = 60000
 
